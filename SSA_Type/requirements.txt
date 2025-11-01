@@ -1,0 +1,127 @@
+# Requirements for SSA Brain Tumor Segmentation Project
+
+## Core Dependencies
+torch>=2.0.0
+torchvision>=0.15.0
+torchaudio>=2.0.0
+
+## Deep Learning & Scientific Computing
+numpy>=1.23.0
+scipy>=1.9.0
+scikit-learn>=1.1.0
+
+## Medical Imaging
+nibabel>=4.0.0
+SimpleITK>=2.2.0
+
+## Visualization & Analysis
+matplotlib>=3.6.0
+seaborn>=0.12.0
+pillow>=9.3.0
+
+## Data Processing
+pandas>=1.5.0
+h5py>=3.7.0
+
+## GPU Acceleration (Optional but Recommended)
+# CUDA 11.8+ required
+# Install separately: pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+## Development Tools (Optional)
+jupyter>=1.0.0
+ipython>=8.8.0
+black>=23.0.0
+pylint>=2.16.0
+
+## Notes
+
+### CUDA Installation
+For GPU acceleration, ensure CUDA 11.8+ is installed:
+```bash
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+```
+
+### Alternative CPU Installation
+For CPU-only (slower):
+```bash
+pip install torch torchvision torchaudio
+```
+
+### GPU Requirements
+- NVIDIA GPU: 4GB+ VRAM minimum
+- Tested on: GTX 1650 (4GB VRAM)
+- CUDA Compute Capability: 7.5+
+
+### Installation Instructions
+
+```bash
+# Create virtual environment
+python -m venv ssa_env
+source ssa_env/bin/activate  # Windows: ssa_env\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Verify installation
+python -c "import torch; print(f'PyTorch {torch.__version__}')"
+python -c "import nibabel; print('nibabel OK')"
+```
+
+### Optional: Development Environment
+For code development and testing:
+```bash
+pip install jupyter black pylint
+```
+
+### Troubleshooting
+
+**CUDA Issues:**
+```bash
+# Check GPU
+nvidia-smi
+
+# Verify PyTorch CUDA support
+python -c "import torch; print(torch.cuda.is_available())"
+```
+
+**NumPy/SciPy Compatibility:**
+If you encounter NumPy version conflicts:
+```bash
+pip install --upgrade numpy scipy
+```
+
+**nibabel Issues:**
+```bash
+# Reinstall with compatibility
+pip install --force-reinstall nibabel==5.1.0
+```
+
+---
+
+## Version Specifications Used in Project
+
+- Python: 3.10.12
+- PyTorch: 2.0.0
+- CUDA: 11.8
+- cuDNN: 8.6.0
+- NumPy: 1.24.0
+- nibabel: 5.1.0
+
+---
+
+## Estimated Installation Time
+- First install: 5-10 minutes (depending on internet speed)
+- GPU driver installation: 10-30 minutes (if needed)
+- Total setup: 20-40 minutes
+
+## Storage Requirements
+- Base packages: ~5GB
+- Project data: ~2GB (included)
+- Model weights: ~100MB (included)
+- Visualizations: ~2MB (included)
+- **Total:** ~7.1GB
+
+---
+
+See `README.md` for general setup instructions.
+See `docs/RESEARCH_METHODOLOGY.md` for detailed technical requirements.

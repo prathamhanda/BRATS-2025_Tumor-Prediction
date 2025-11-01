@@ -1,2 +1,63 @@
+# Dataset folders (large medical imaging data)
 archive/
+data/
+
+# Model files (large trained model weights)
 model/
+models/
+*.pth
+*.ckpt
+*.h5
+*.pb
+
+# Training artifacts
+logs/
+results/
+checkpoints/
+runs/
+tensorboard/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+env/
+venv/
+.venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE settings
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing and coverage
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+
+# Temporary and output files
+*.log
+*.tmp
+*.bak
+tmp/
+temp/
+
+# OS specific
+Thumbs.db
+desktop.ini

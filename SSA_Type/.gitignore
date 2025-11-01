@@ -1,0 +1,146 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+ssa_env/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.project
+.pydevproject
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+data/
+
+# IPython
+profile_default/
+ipython_config.py
+
+# Large Model Files (Optional - uncomment if not tracking models)
+# models/*.pth
+# models/*.pt
+# models/*.ckpt
+
+# Large Data Files (Optional - uncomment if not tracking data)
+# data/ssa_preprocessed_patches/*.npz
+# *.npz
+
+# Archive Files
+*.zip
+*.tar.gz
+*.rar
+
+# OS
+Thumbs.db
+.Thumbs.db
+.DS_Store
+._*
+
+# Logs
+*.log
+logs/
+*.out
+
+# Temp Files
+*.tmp
+*.temp
+tmp/
+temp/
+
+# Cache
+.cache/
+*.cache
+
+# Editor Backups
+*.bak
+*.swp
+*.swo
+
+# Environment Variables
+.env
+.env.local
+.env.*.local
+
+# Build Artifacts
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+
+# Package Manager
+poetry.lock
+Pipfile.lock
+
+# Debug
+debug.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Electron
+node_modules/
+dist_electron/
+
+# Files to keep (using ! override)
+!.gitkeep
+!models/.gitkeep
+!data/.gitkeep
+!results/.gitkeep
+!visualizations/.gitkeep
+
+# Auto-generated reports (optional - uncomment to ignore)
+# *.csv
+# reports/
+
+# Specific to Project
+# __pycache__ already covered above
+.gpu_cache/
+*.nii
+*.nii.gz
