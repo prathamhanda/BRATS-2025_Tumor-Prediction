@@ -179,6 +179,9 @@ class SegmentationBasedClassifier:
         try:
             # Load Glioma model
             self.logger.info(f"Loading Glioma model from {self.glioma_model_path}")
+            # Check file existence before attempting to load to provide a clear error
+            if not self.glioma_model_path.exists():
+                raise FileNotFoundError(f"Glioma model file not found: {self.glioma_model_path}")
             self.glioma_model = self._create_unet_model(num_classes=4)  # Background + 3 tumor classes
             
             glioma_checkpoint = torch.load(self.glioma_model_path, map_location=self.device)
@@ -204,6 +207,8 @@ class SegmentationBasedClassifier:
             
             # Load SSA model
             self.logger.info(f"Loading SSA model from {self.ssa_model_path}")
+            if not self.ssa_model_path.exists():
+                raise FileNotFoundError(f"SSA model file not found: {self.ssa_model_path}")
             self.ssa_model = self._create_unet_model(num_classes=4)  # Assuming same structure
             
             ssa_checkpoint = torch.load(self.ssa_model_path, map_location=self.device)
@@ -230,7 +235,8 @@ class SegmentationBasedClassifier:
             self.logger.info("✅ Both models loaded successfully")
             
         except Exception as e:
-            self.logger.error(f"❌ Error loading models: {str(e)}")
+            # Log a clearer message and re-raise for the caller to handle
+            self.logger.error(f"Error loading models: {str(e)}")
             raise
     
     def _preprocess_input(self, image: np.ndarray) -> torch.Tensor:

@@ -10,6 +10,7 @@ its effectiveness for both tumor types.
 
 
 import sys
+import argparse
 import numpy as np
 import time
 from pathlib import Path
@@ -20,7 +21,7 @@ warnings.filterwarnings('ignore')
 project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
-from Classification.tumor_classifier import SegmentationBasedClassifier, TumorType
+from Classification.tumor_classifier import SegmentationBasedClassifier, TumorType, MONAI_AVAILABLE
 from Classification.data_loader import BraTSDataLoader
 
 def print_header():
@@ -99,7 +100,13 @@ def test_single_case(classifier, data_loader, case_path, expected_type, case_nam
 
 def main():
     """Main demonstration function"""
-    
+    parser = argparse.ArgumentParser(description='Demo for segmentation-based tumor classification')
+    parser.add_argument('--glioma_model', type=str, default='model/best_model.pth', help='Path to glioma model checkpoint')
+    parser.add_argument('--ssa_model', type=str, default='SSA_Type/models/best_ssa_model.pth', help='Path to SSA model checkpoint')
+    parser.add_argument('--archive', type=str, default='archive', help='Path to archive folder containing cases')
+    parser.add_argument('--device', type=str, default='cpu', help='Device to use: cpu or cuda')
+    args = parser.parse_args()
+
     print_header()
     
     # Test cases configuration
@@ -115,27 +122,47 @@ def main():
             'name': 'SSA Case (BraTS-SSA-00002-000)'
         }
     ]
-    
     try:
         print_section("SYSTEM INITIALIZATION")
-        
+
+        # Resolve paths from arguments
+        glioma_path = Path(args.glioma_model).resolve()
+        ssa_path = Path(args.ssa_model).resolve()
+
+        # Pre-check model files and provide actionable messages
+        if not glioma_path.exists():
+            print(f"ERROR: Glioma model not found at: {glioma_path}")
+            print("Please place the trained checkpoint at the specified path or run with --glioma_model <path>")
+            return
+
+        if not ssa_path.exists():
+            print(f"ERROR: SSA model not found at: {ssa_path}")
+            print("Please place the trained checkpoint at the specified path or run with --ssa_model <path>")
+            return
+
+        # Check MONAI availability (models depend on MONAI UNet)
+        if not MONAI_AVAILABLE:
+            print("ERROR: MONAI is not installed or not available in this environment.")
+            print("Please install MONAI (pip install monai) and restart the demo, or run on a machine with MONAI available.")
+            return
+
         # Initialize classifier
         print("Loading pre-trained segmentation models...")
         classifier = SegmentationBasedClassifier(
-            glioma_model_path="model/best_model.pth",
-            ssa_model_path="SSA_Type/models/best_ssa_model.pth",
-            device='cpu'
+            glioma_model_path=str(glioma_path),
+            ssa_model_path=str(ssa_path),
+            device=args.device
         )
-        
+
         # Set optimized thresholds (very sensitive to favor any difference)
         classifier.update_thresholds(confidence_threshold=0.001, ratio_threshold=1.001)
         print("Models loaded and configured successfully")
-        
+
         # Initialize data loader
-        print("Initializing BraTS data loader...")
-        data_loader = BraTSDataLoader("archive")
+        print(f"Initializing BraTS data loader (archive: {args.archive})...")
+        data_loader = BraTSDataLoader(args.archive)
         print("Data loader initialized and ready")
-        
+
         # Display system info
         model_info = classifier.get_model_info()
         print(f"System Configuration:")
