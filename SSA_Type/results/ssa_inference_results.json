@@ -1,0 +1,21 @@
+{
+  "timestamp": "2025-09-07T17:47:01.665593",
+  "sample_path": "archive/ASNR-MICCAI-BraTS2023-SSA-Challenge-TrainingData_V2/BraTS-SSA-00002-000",
+  "prediction_shape": [
+    240,
+    240,
+    155
+  ],
+  "unique_predictions": [
+    0,
+    2
+  ],
+  "metrics": {
+    "dice_class_1": 0.0,
+    "dice_class_2": 0.7992472253143909,
+    "dice_class_3": 0.0,
+    "mean_dice": 0.2664157417714636,
+    "num_classes": 3
+  },
+  "model_path": "SSA_Type/SSA_Type/training_results/best_ssa_model.pth"
+}

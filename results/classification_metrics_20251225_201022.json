@@ -1,0 +1,40 @@
+{
+  "total_cases": 16,
+  "accuracy": 0.875,
+  "precision": 0.87890625,
+  "recall": 0.9375,
+  "f1_score": 0.907258064516129,
+  "specificity": 1.0,
+  "sensitivity": 0.0,
+  "confusion_matrix": [
+    [
+      15,
+      0
+    ],
+    [
+      1,
+      0
+    ]
+  ],
+  "roc_auc": 0.2666666666666667,
+  "average_confidence": 0.6354569536116388,
+  "confidence_std": 0.003947526530364841,
+  "average_processing_time": 0.7456314265727997,
+  "processing_time_std": 0.0980190576363892,
+  "glioma_score_stats": {
+    "mean": 0.6282593749049638,
+    "std": 0.005686136377635004,
+    "min": 0.6160623358355628,
+    "max": 0.6353413495752547
+  },
+  "ssa_score_stats": {
+    "mean": 0.6354472829235924,
+    "std": 0.00395333923938808,
+    "min": 0.6291457262304094,
+    "max": 0.6424900465541415
+  },
+  "glioma_accuracy": 0.0,
+  "glioma_avg_confidence": 0.6375719779067569,
+  "ssa_accuracy": 0.9333333333333333,
+  "ssa_avg_confidence": 0.6353159519919642
+}
