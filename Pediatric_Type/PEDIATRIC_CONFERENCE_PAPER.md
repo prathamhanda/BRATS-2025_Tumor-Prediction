@@ -280,6 +280,7 @@ In segmentation, voxel-level accuracy is dominated by background and can be misl
 - Ground truth source: `labelsTr`
 - Case count: 30 cases (subsample) for fast comparative benchmarking
 - Empty-region handling: Dice is 1.0 when both GT and prediction are empty; 0.0 when exactly one is empty
+- Additional boundary metric: HD95 (Hausdorff 95%) in **mm**, using voxel spacing from the NIfTI header; if both masks are empty HD95=0.0, if exactly one is empty HD95 is set to the volume diagonal (mm)
 
 #### 11.4.3 Models compared
 We report one strong reference model and five deliberately weaker baselines that require **no training** (so this comparison is always runnable, even if other trained checkpoints are unavailable in the environment).
@@ -297,43 +298,27 @@ We report one strong reference model and five deliberately weaker baselines that
 #### 11.4.4 Quantitative results
 The comparison table below is directly produced by the benchmarking notebook and saved as a CSV.
 
-MODEL COMPARISON RESULTS
+MODEL COMPARISON RESULTS (DICE + HD95)
 
 ```text
-================================================================================
-						  MODEL COMPARISON RESULTS
-================================================================================
-									Model  WT_mean  TC_mean  ET_mean  Mean_mean
-nnU-Net v2 3d_fullres (ensemble) 0.881705 0.541920 0.590080   0.671235
-	 Z-score outliers (heuristic) 0.206655 0.148763 0.012732   0.122716
-		 All background (constant) 0.000000 0.033333 0.133333   0.055556
-		 Center sphere (synthetic) 0.149750 0.013091 0.002443   0.055095
-	 Random labels (brain-masked) 0.028749 0.014089 0.005132   0.015990
- Intensity threshold (heuristic) 0.010530 0.000290 0.033333   0.014718
-================================================================================
+==========================================================================================
+                      MODEL COMPARISON RESULTS (DICE + HD95)
+==========================================================================================
+                           Model  WT_Dice  TC_Dice  ET_Dice  Mean_Dice  WT_HD95_mm  TC_HD95_mm  ET_HD95_mm  Mean_HD95_mm
+nnU-Net v2 3d_fullres (ensemble) 0.881705 0.541920 0.590080   0.671235    6.734133   59.068163   66.667228     44.156508
+    Z-score outliers (heuristic) 0.206655 0.148763 0.012732   0.122716   74.880183   89.580464  107.726518     90.729055
+       All background (constant) 0.000000 0.033333 0.133333   0.055556  371.426978  359.046079  321.903381    350.792146
+       Center sphere (synthetic) 0.149750 0.013091 0.002443   0.055095   40.264775   57.350190   89.840065     62.485010
+    Random labels (brain-masked) 0.028749 0.014089 0.005132   0.015990  110.222245  125.257870  155.418430    130.299515
+ Intensity threshold (heuristic) 0.010530 0.000290 0.033333   0.014718   69.343012  102.820879  115.149358     95.771083
+==========================================================================================
 ```
 
 **Interpretation (very important):**
 - The proposed method achieves strong overlap across all three regions, with the largest gains on **TC** and **ET**, which are typically the most fragile regions.
+- HD95 confirms that the proposed method also produces substantially better boundary alignment (lower is better) than the weak baselines.
 - Even the strongest “no training” heuristic baseline is far below nnU-Net; this highlights that performance is not explained by trivial intensity thresholding.
 - Some weak baselines can obtain a non-zero ET Dice even when they are not meaningfully segmenting ET (e.g., predicting small random islands). This is why we report full WT/TC/ET and also inspect qualitative overlays.
-<!-- 
-#### 11.4.5 Saved artefacts (tables + visualisations)
-These files are produced by the notebook run and can be embedded in a paper appendix or shared with reviewers.
-
-- Summary CSV: [results/model_comparison/model_comparison_summary.csv](results/model_comparison/model_comparison_summary.csv)
-- Per-case CSV: [results/model_comparison/model_comparison_per_case.csv](results/model_comparison/model_comparison_per_case.csv) -->
-
-<!-- **Visualisations**
-
-Mean Dice by region (bar chart):
-![Mean Dice by region](visualisations/model_comparison/dice_bar_means.png)
-
-Dice distribution per case (boxplot):
-![Dice distribution per case](visualisations/model_comparison/dice_boxplot.png)
-
-Representative qualitative montage (GT vs nnU-Net vs best baseline):
-![Sample slice montage](visualisations/model_comparison/sample_slice_BraTS-PED-00001-000.png) -->
 
 ### 11.5 Test/validation inference and submission artifact
 On `imagesTs`:
@@ -341,7 +326,6 @@ On `imagesTs`:
 - postprocessed outputs,
 - produced the final zip:
 
-`/workspace/pediatric_tumor_data/submissions/nnunet_d501_3d_fullres_imagesTs_20260127_093237.zip`
 
 ---
 
@@ -352,6 +336,7 @@ Qualitative QC is mandatory for pediatric ET.
 Exported per case:
 - FLAIR overlay (base + segmentation)
 - T1ce overlay (base + segmentation)
+- Representative axial slice montage with MRI underlay + transparent subregion overlay, plus a dedicated **Metrics** panel reporting prediction-only tumor parameters (volumes in **cm³**, ratios, connected components, extents). Slice is chosen by maximum predicted WT area.
 
 Also exported:
 - raw vs post comparisons,
@@ -426,26 +411,7 @@ Include:
 
 ---
 
-## 17. What to download from the GPU server (to keep the pediatric project locally)
-
-### Tier A — Minimum for writing the paper
-1. Final submission zips: `/workspace/pediatric_tumor_data/submissions/*.zip`
-2. Visual QC pack run folders: `/workspace/pediatric_tumor_data/visualisations/run_*/`
-3. Prediction folders: `/workspace/pediatric_tumor_data/nnunetv2/nnUNet_results/notebook_runs/pred_d501_3d_fullres_*`
-4. Notebook: `Pediatric_Type/pediatric_5.2.ipynb`
-
-### Tier B — Full reproducibility
-5. nnU‑Net results tree with checkpoints + configs:
-	 `/workspace/pediatric_tumor_data/nnunetv2/nnUNet_results/Dataset501_*/**/fold_*/checkpoint_final.pth`
-
-### Tier C/D — Large (optional)
-6. Preprocessed cache: `/workspace/pediatric_tumor_data/nnunetv2/nnUNet_preprocessed/`
-7. Raw nnU‑Net dataset: `/workspace/pediatric_tumor_data/nnunetv2/nnUNet_raw/Dataset501_*/`
-8. Original extracted case folders: `/workspace/pediatric_tumor_data/training/` and `/workspace/pediatric_tumor_data/validation/`
-
----
-
-## 18. Figure caption templates (paste into paper)
+## 17. Figure caption templates (paste into paper)
 
 - **QC grid caption**: “Qualitative overlays for representative pediatric cases showing FLAIR and T1ce backgrounds with predicted subregion overlays. WT is consistently detected; ET remains the smallest and most visually challenging region.”
 
