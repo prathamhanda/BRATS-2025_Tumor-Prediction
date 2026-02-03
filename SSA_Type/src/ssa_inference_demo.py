@@ -26,8 +26,12 @@ from pathlib import Path
 import os
 import json
 from datetime import datetime
+import math
+from typing import Dict, Optional, Tuple
 import warnings
 warnings.filterwarnings('ignore')
+
+from scipy import ndimage
 
 # Import our model
 import sys
@@ -71,6 +75,9 @@ class SSAInferenceDemo:
         # Create custom colormap for tumor visualization
         self.tumor_colors = ['black', 'red', 'green', 'blue', 'yellow']
         self.tumor_cmap = ListedColormap(self.tumor_colors[:4])
+
+        # Geometry from the last loaded sample (set in load_ssa_sample)
+        self.last_spacing = None
         
         print(f"🧠 SSA Inference Demo initialized on {device}")
     
@@ -88,7 +95,10 @@ class SSAInferenceDemo:
         # Expected file patterns for SSA data
         modalities = ['t1n', 't1c', 't2w', 't2f']
         
-        data = {}
+        data = {
+            'spacing': None,
+            'affine': None,
+        }
         sample_files = list(Path(sample_path).glob("*.nii.gz"))
         
         # Load each modality
@@ -98,6 +108,10 @@ class SSAInferenceDemo:
                 file_path = modality_files[0]
                 img = nib.load(str(file_path))
                 data[modality] = img.get_fdata()
+                # Store reference geometry from the first available modality
+                if data.get('spacing') is None:
+                    data['spacing'] = tuple(float(z) for z in img.header.get_zooms()[:3])
+                    data['affine'] = img.affine
                 print(f"  ✅ {modality.upper()}: {data[modality].shape}")
             else:
                 print(f"  ❌ {modality.upper()}: Not found")
@@ -107,6 +121,9 @@ class SSAInferenceDemo:
         if seg_files:
             seg_img = nib.load(str(seg_files[0]))
             data['segmentation'] = seg_img.get_fdata()
+            if data.get('spacing') is None:
+                data['spacing'] = tuple(float(z) for z in seg_img.header.get_zooms()[:3])
+                data['affine'] = seg_img.affine
             print(f"  ✅ Segmentation: {data['segmentation'].shape}")
             
             # Check unique labels
@@ -116,7 +133,126 @@ class SSAInferenceDemo:
             print(f"  ⚠️ No segmentation found")
             data['segmentation'] = None
             
+        self.last_spacing = data.get('spacing')
         return data
+
+    def calculate_tumor_parameters(
+        self,
+        prediction: np.ndarray,
+        spacing: Optional[Tuple[float, float, float]] = None,
+    ) -> Dict:
+        """Compute clinically useful tumor parameters from a 3D label map.
+
+        Assumes labels:
+        0 background
+        1 necrotic / non-enhancing tumor core
+        2 edema
+        3 enhancing tumor
+        """
+        sx, sy, sz = (spacing if spacing is not None else (1.0, 1.0, 1.0))
+        voxel_vol_mm3 = float(sx * sy * sz)
+        voxel_area_mm2 = float(sx * sy)
+
+        pred = prediction.astype(np.int32)
+        masks = {
+            'NCR_NET': pred == 1,
+            'ED': pred == 2,
+            'ET': pred == 3,
+        }
+
+        wt_mask = pred > 0
+        tc_mask = (pred == 1) | (pred == 3)
+        et_mask = pred == 3
+
+        def _vol_cm3(mask: np.ndarray) -> float:
+            return float(mask.sum() * voxel_vol_mm3 / 1000.0)
+
+        def _max_area_slice_cm2(mask: np.ndarray) -> Tuple[int, float]:
+            if mask.ndim != 3 or mask.shape[2] == 0:
+                return 0, 0.0
+            areas = mask.sum(axis=(0, 1)).astype(np.float64) * (voxel_area_mm2 / 100.0)
+            idx = int(np.argmax(areas))
+            return idx, float(areas[idx])
+
+        def _centroid(mask: np.ndarray) -> Dict:
+            if not np.any(mask):
+                return {'voxel': None, 'mm': None}
+            coords = np.column_stack(np.where(mask))  # (N, 3) in (x,y,z)
+            c = coords.mean(axis=0)
+            voxel = (float(c[0]), float(c[1]), float(c[2]))
+            mm = (float(c[0] * sx), float(c[1] * sy), float(c[2] * sz))
+            return {'voxel': voxel, 'mm': mm}
+
+        def _bbox_mm(mask: np.ndarray) -> Dict:
+            if not np.any(mask):
+                return {'min_voxel': None, 'max_voxel': None, 'size_mm': None}
+            xs, ys, zs = np.where(mask)
+            x0, x1 = int(xs.min()), int(xs.max())
+            y0, y1 = int(ys.min()), int(ys.max())
+            z0, z1 = int(zs.min()), int(zs.max())
+            size_mm = (
+                float((x1 - x0 + 1) * sx),
+                float((y1 - y0 + 1) * sy),
+                float((z1 - z0 + 1) * sz),
+            )
+            return {
+                'min_voxel': (x0, y0, z0),
+                'max_voxel': (x1, y1, z1),
+                'size_mm': size_mm,
+            }
+
+        def _components(mask: np.ndarray) -> int:
+            if not np.any(mask):
+                return 0
+            structure = ndimage.generate_binary_structure(3, 1)  # 6-connectivity
+            _, n = ndimage.label(mask, structure=structure)
+            return int(n)
+
+        wt_vol = _vol_cm3(wt_mask)
+        tc_vol = _vol_cm3(tc_mask)
+        et_vol = _vol_cm3(et_mask)
+        ed_vol = _vol_cm3(masks['ED'])
+        ncr_vol = _vol_cm3(masks['NCR_NET'])
+
+        max_slice_wt, max_area_wt = _max_area_slice_cm2(wt_mask)
+        tumor_slices = int(np.count_nonzero(wt_mask.sum(axis=(0, 1)) > 0))
+
+        eq_diam_mm = None
+        if wt_vol > 0:
+            wt_vol_mm3 = wt_vol * 1000.0
+            eq_diam_mm = float(2.0 * ((3.0 * wt_vol_mm3) / (4.0 * math.pi)) ** (1.0 / 3.0))
+
+        enhancing_fraction = float(et_vol / wt_vol) if wt_vol > 0 else 0.0
+        edema_to_core = float(ed_vol / tc_vol) if tc_vol > 0 else 0.0
+        necrotic_fraction_core = float(ncr_vol / tc_vol) if tc_vol > 0 else 0.0
+
+        params = {
+            'spacing_mm': (float(sx), float(sy), float(sz)),
+            'voxel_volume_mm3': voxel_vol_mm3,
+            'volumes_cm3': {
+                'WT': wt_vol,
+                'TC': tc_vol,
+                'ET': et_vol,
+                'ED': ed_vol,
+                'NCR_NET': ncr_vol,
+            },
+            'ratios': {
+                'enhancing_fraction_ET_over_WT': enhancing_fraction,
+                'edema_to_core_ED_over_TC': edema_to_core,
+                'necrotic_fraction_NCR_over_TC': necrotic_fraction_core,
+            },
+            'max_cross_section_WT': {
+                'slice_index': max_slice_wt,
+                'area_cm2': max_area_wt,
+            },
+            'slices_with_tumor': tumor_slices,
+            'centroid_WT': _centroid(wt_mask),
+            'bbox_WT': _bbox_mm(wt_mask),
+            'connected_components_WT': _components(wt_mask),
+            'equivalent_spherical_diameter_mm_WT': eq_diam_mm,
+        }
+
+        return params
     
     def preprocess_for_inference(self, data):
         """Preprocess data for model inference
@@ -129,6 +265,15 @@ class SSAInferenceDemo:
         """
         modalities = ['t1n', 't1c', 't2w', 't2f']
         
+        # Determine a reference shape for missing modalities
+        reference_volume = None
+        for modality in modalities:
+            if modality in data and data[modality] is not None:
+                reference_volume = data[modality]
+                break
+        if reference_volume is None:
+            raise ValueError("No MRI modalities found in sample folder")
+
         # Stack modalities
         volume_list = []
         for modality in modalities:
@@ -140,7 +285,7 @@ class SSAInferenceDemo:
                 volume_list.append(volume)
             else:
                 # Create dummy volume if modality missing
-                volume_list.append(np.zeros_like(volume_list[0]))
+                volume_list.append(np.zeros_like(reference_volume))
         
         # Stack and convert to tensor
         input_volume = np.stack(volume_list, axis=0)  # Shape: (4, H, W, D)
@@ -202,12 +347,47 @@ class SSAInferenceDemo:
         gt_mapped[gt_mapped == 4] = 3
         
         metrics = {}
+
+        # Local helper: HD95 for binary masks
+        def _hd95_binary(a: np.ndarray, b: np.ndarray, spacing_mm=(1.0, 1.0, 1.0)) -> float:
+            a = a.astype(bool)
+            b = b.astype(bool)
+
+            if not np.any(a) and not np.any(b):
+                return 0.0
+            if not np.any(a) or not np.any(b):
+                return float('nan')
+
+            structure = ndimage.generate_binary_structure(3, 1)
+            a_er = ndimage.binary_erosion(a, structure=structure, iterations=1)
+            b_er = ndimage.binary_erosion(b, structure=structure, iterations=1)
+            a_surf = a ^ a_er
+            b_surf = b ^ b_er
+
+            # Distance to the nearest surface voxel
+            dt_b = ndimage.distance_transform_edt(~b_surf, sampling=spacing_mm)
+            dt_a = ndimage.distance_transform_edt(~a_surf, sampling=spacing_mm)
+            dists_ab = dt_b[a_surf]
+            dists_ba = dt_a[b_surf]
+            if dists_ab.size == 0 or dists_ba.size == 0:
+                return float('nan')
+
+            all_dists = np.concatenate([dists_ab, dists_ba]).astype(np.float64)
+            return float(np.percentile(all_dists, 95))
         
-        # Calculate Dice score for each class
+        # Calculate Dice score + HD95 for each class
         unique_labels = np.unique(gt_mapped)
         unique_labels = unique_labels[unique_labels > 0]  # Exclude background
         
         dice_scores = []
+        hd95_scores = []
+
+        spacing_mm = (1.0, 1.0, 1.0)
+        # If caller attached spacing in the instance (set in load_ssa_sample), use it.
+        # run_complete_demo calls calculate_metrics; we store spacing on self for access.
+        if hasattr(self, 'last_spacing') and self.last_spacing is not None:
+            spacing_mm = tuple(float(x) for x in self.last_spacing)
+
         for label in unique_labels:
             pred_mask = (prediction == label).astype(float)
             gt_mask = (gt_mapped == label).astype(float)
@@ -222,18 +402,46 @@ class SSAInferenceDemo:
                 
             dice_scores.append(dice)
             metrics[f'dice_class_{int(label)}'] = dice
+
+            hd95 = _hd95_binary(prediction == label, gt_mapped == label, spacing_mm=spacing_mm)
+            hd95_scores.append(hd95)
+            metrics[f'hd95_class_{int(label)}'] = hd95
             
         # Overall metrics
         metrics['mean_dice'] = np.mean(dice_scores)
         metrics['num_classes'] = len(unique_labels)
+
+        # Mean HD95 across present classes (ignoring NaNs)
+        if hd95_scores:
+            metrics['mean_hd95_mm'] = float(np.nanmean(np.array(hd95_scores, dtype=np.float64)))
+        else:
+            metrics['mean_hd95_mm'] = float('nan')
+
+        # BraTS-style region aggregates (binary)
+        pred_wt = prediction > 0
+        gt_wt = gt_mapped > 0
+        pred_tc = (prediction == 1) | (prediction == 3)
+        gt_tc = (gt_mapped == 1) | (gt_mapped == 3)
+        pred_et = prediction == 3
+        gt_et = gt_mapped == 3
+
+        metrics['hd95_WT_mm'] = _hd95_binary(pred_wt, gt_wt, spacing_mm=spacing_mm)
+        metrics['hd95_TC_mm'] = _hd95_binary(pred_tc, gt_tc, spacing_mm=spacing_mm)
+        metrics['hd95_ET_mm'] = _hd95_binary(pred_et, gt_et, spacing_mm=spacing_mm)
         
         print(f"✅ Metrics calculated:")
         for key, value in metrics.items():
-            print(f"   {key}: {value:.4f}")
+            if isinstance(value, (int, float)):
+                if 'hd95' in key:
+                    print(f"   {key}: {value:.2f}")
+                else:
+                    print(f"   {key}: {value:.4f}")
+            else:
+                print(f"   {key}: {value}")
             
         return metrics
     
-    def create_comprehensive_visualization(self, data, prediction, probabilities, metrics=None):
+    def create_comprehensive_visualization(self, data, prediction, probabilities, metrics=None, tumor_params=None):
         """Create comprehensive visualization of segmentation results
         
         Args:
@@ -307,6 +515,7 @@ class SSAInferenceDemo:
 
 Overall Performance:
 • Mean Dice Score: {metrics['mean_dice']:.4f} ({metrics['mean_dice']*100:.2f}%)
+• Mean HD95: {metrics.get('mean_hd95_mm', float('nan')):.2f} mm
 • Number of Classes: {metrics['num_classes']}
 
 Class-wise Dice Scores:"""
@@ -315,6 +524,24 @@ Class-wise Dice Scores:"""
                 if key.startswith('dice_class_'):
                     class_num = key.split('_')[-1]
                     metrics_text += f"\n• Class {class_num}: {value:.4f} ({value*100:.2f}%)"
+
+            # HD95 per class (if available)
+            if any(k.startswith('hd95_class_') for k in metrics.keys()):
+                metrics_text += "\n\nClass-wise HD95 (mm):"
+                for key, value in metrics.items():
+                    if key.startswith('hd95_class_'):
+                        class_num = key.split('_')[-1]
+                        if value == value:  # not NaN
+                            metrics_text += f"\n• Class {class_num}: {value:.2f}"
+                        else:
+                            metrics_text += f"\n• Class {class_num}: N/A"
+
+            # Aggregates (WT/TC/ET)
+            if any(k in metrics for k in ('hd95_WT_mm', 'hd95_TC_mm', 'hd95_ET_mm')):
+                metrics_text += "\n\nRegion HD95 (mm):"
+                metrics_text += f"\n• WT: {metrics.get('hd95_WT_mm', float('nan')):.2f}"
+                metrics_text += f"\n• TC: {metrics.get('hd95_TC_mm', float('nan')):.2f}"
+                metrics_text += f"\n• ET: {metrics.get('hd95_ET_mm', float('nan')):.2f}"
             
             metrics_text += f"""
 
@@ -354,6 +581,41 @@ Tumor Labels:
 
 Note: SSA label 4 is mapped to label 3 for model compatibility
 """
+
+        if tumor_params:
+            v = tumor_params.get('volumes_cm3', {})
+            r = tumor_params.get('ratios', {})
+            bbox = (tumor_params.get('bbox_WT') or {}).get('size_mm')
+            centroid_mm = (tumor_params.get('centroid_WT') or {}).get('mm')
+            max_cs = tumor_params.get('max_cross_section_WT', {})
+
+            bbox_text = f"{bbox[0]:.1f}×{bbox[1]:.1f}×{bbox[2]:.1f} mm" if bbox else "N/A"
+            centroid_text = f"({centroid_mm[0]:.1f}, {centroid_mm[1]:.1f}, {centroid_mm[2]:.1f}) mm" if centroid_mm else "N/A"
+            eqd = tumor_params.get('equivalent_spherical_diameter_mm_WT')
+            eqd_text = f"{eqd:.1f} mm" if eqd is not None else "N/A"
+
+            legend_text += f"""
+
+📦 TUMOR PARAMETERS (Prediction)
+
+Volumes (cm³):
+• WT (Whole): {v.get('WT', 0.0):.2f}
+• TC (Core):  {v.get('TC', 0.0):.2f}
+• ET (Enh.):  {v.get('ET', 0.0):.2f}
+• ED (Edema): {v.get('ED', 0.0):.2f}
+
+Ratios:
+• ET/WT: {r.get('enhancing_fraction_ET_over_WT', 0.0):.2f}
+• ED/TC: {r.get('edema_to_core_ED_over_TC', 0.0):.2f}
+
+Extent:
+• Max WT area: {max_cs.get('area_cm2', 0.0):.2f} cm² (slice {max_cs.get('slice_index', 0)})
+• Tumor slices: {tumor_params.get('slices_with_tumor', 0)}
+• WT bbox: {bbox_text}
+• WT centroid: {centroid_text}
+• WT components: {tumor_params.get('connected_components_WT', 0)}
+• Eq. sphere diam (WT): {eqd_text}
+"""
         
         ax_legend.text(0.05, 0.95, legend_text, transform=ax_legend.transAxes,
                       fontsize=11, verticalalignment='top',
@@ -364,14 +626,16 @@ Note: SSA label 4 is mapped to label 3 for model compatibility
                     fontsize=16, fontweight='bold', y=0.98)
         
         # Save visualization
-        output_path = 'SSA_Type/SSA_Type/ssa_inference_demonstration.png'
+        output_dir = Path('SSA_Type/visualizations/inference')
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = str(output_dir / 'ssa_inference_demonstration.png')
         plt.savefig(output_path, dpi=300, bbox_inches='tight')
         plt.close()
         
         print(f"💾 Visualization saved: {output_path}")
         return output_path
     
-    def create_3d_volume_analysis(self, prediction, ground_truth=None):
+    def create_3d_volume_analysis(self, prediction, ground_truth=None, spacing=None):
         """Create 3D volume analysis and statistics
         
         Args:
@@ -379,6 +643,9 @@ Note: SSA label 4 is mapped to label 3 for model compatibility
             ground_truth: Ground truth volume (optional)
         """
         print("📊 Creating 3D volume analysis...")
+
+        sx, sy, sz = (spacing if spacing is not None else (1.0, 1.0, 1.0))
+        voxel_vol_mm3 = float(sx * sy * sz)
         
         fig, axes = plt.subplots(2, 3, figsize=(18, 12))
         
@@ -447,16 +714,18 @@ Note: SSA label 4 is mapped to label 3 for model compatibility
             ax = axes[1, 1]
             pred_volume = np.sum(prediction > 0)
             gt_volume = np.sum(gt_mapped > 0)
-            
-            volumes = [pred_volume, gt_volume]
+
+            pred_cm3 = (pred_volume * voxel_vol_mm3) / 1000.0
+            gt_cm3 = (gt_volume * voxel_vol_mm3) / 1000.0
+            volumes = [pred_cm3, gt_cm3]
             labels = ['Prediction', 'Ground Truth']
             bars = ax.bar(labels, volumes, color=['blue', 'orange'], alpha=0.7)
             ax.set_title('Total Tumor Volume Comparison', fontweight='bold')
-            ax.set_ylabel('Voxel Count')
+            ax.set_ylabel('Volume (cm³)')
             
             for bar, volume in zip(bars, volumes):
                 ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max(volumes)*0.01,
-                       f'{volume:,}', ha='center', va='bottom', fontweight='bold')
+                       f'{volume:.2f}', ha='center', va='bottom', fontweight='bold')
             
             # Overlap analysis
             ax = axes[1, 2]
@@ -493,7 +762,9 @@ Note: SSA label 4 is mapped to label 3 for model compatibility
         plt.tight_layout()
         
         # Save analysis
-        output_path = 'SSA_Type/SSA_Type/ssa_3d_volume_analysis.png'
+        output_dir = Path('SSA_Type/visualizations/inference')
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = str(output_dir / 'ssa_3d_volume_analysis.png')
         plt.savefig(output_path, dpi=300, bbox_inches='tight')
         plt.close()
         
@@ -520,6 +791,9 @@ Note: SSA label 4 is mapped to label 3 for model compatibility
         
         # Run inference
         prediction, probabilities = self.run_inference(input_tensor)
+
+        # Compute tumor parameters (from prediction)
+        tumor_params = self.calculate_tumor_parameters(prediction, data.get('spacing'))
         
         # Calculate metrics if ground truth available
         metrics = None
@@ -527,8 +801,8 @@ Note: SSA label 4 is mapped to label 3 for model compatibility
             metrics = self.calculate_metrics(prediction, data['segmentation'])
         
         # Create visualizations
-        viz_path = self.create_comprehensive_visualization(data, prediction, probabilities, metrics)
-        analysis_path = self.create_3d_volume_analysis(prediction, data['segmentation'])
+        viz_path = self.create_comprehensive_visualization(data, prediction, probabilities, metrics, tumor_params=tumor_params)
+        analysis_path = self.create_3d_volume_analysis(prediction, data['segmentation'], spacing=data.get('spacing'))
         
         # Save inference results
         results = {
@@ -537,10 +811,14 @@ Note: SSA label 4 is mapped to label 3 for model compatibility
             'prediction_shape': prediction.shape,
             'unique_predictions': np.unique(prediction).tolist(),
             'metrics': metrics,
+            'tumor_parameters': tumor_params,
+            'spacing': data.get('spacing'),
             'model_path': self.model_path
         }
         
-        results_path = 'SSA_Type/SSA_Type/ssa_inference_results.json'
+        results_dir = Path('SSA_Type/results')
+        results_dir.mkdir(parents=True, exist_ok=True)
+        results_path = str(results_dir / 'ssa_inference_results.json')
         with open(results_path, 'w') as f:
             json.dump(results, f, indent=2)
         
@@ -559,7 +837,7 @@ def main():
     """Main function to run SSA inference demonstration"""
     
     # Configuration
-    model_path = "SSA_Type/SSA_Type/training_results/best_ssa_model.pth"
+    model_path = "SSA_Type/models/best_ssa_model.pth"
     sample_path = "archive/ASNR-MICCAI-BraTS2023-SSA-Challenge-TrainingData_V2/BraTS-SSA-00002-000"
     
     # Check CUDA availability

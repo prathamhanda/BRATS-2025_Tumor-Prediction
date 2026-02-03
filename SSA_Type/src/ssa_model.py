@@ -202,16 +202,17 @@ class SSABrainTumorUNet3D(nn.Module):
             
             # Get corresponding skip connection
             skip = skip_connections[i]
+
+            # Handle size mismatch by resizing decoder features to match skip connection
+            if x.shape != skip.shape:
+                x = F.interpolate(x, size=skip.shape[2:], mode='trilinear', align_corners=False)
             
             # Apply attention if enabled
             if self.use_attention:
-                skip = self.attention_blocks[len(self.features) - 1 - i](skip, x)
+                # Attention gate expects: g = decoder features, x = skip features
+                skip = self.attention_blocks[len(self.features) - 1 - i](x, skip)
             
             # Concatenate with skip connection
-            if x.shape != skip.shape:
-                # Handle size mismatch by resizing
-                x = F.interpolate(x, size=skip.shape[2:], mode='trilinear', align_corners=False)
-            
             x = torch.cat([skip, x], dim=1)
             
             # Apply decoder block

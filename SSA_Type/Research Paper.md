@@ -2,10 +2,6 @@
 
 **Research-grade 3D U-Net implementation for brain tumor segmentation achieving 0.8857 Dice score on SSA lesions.**
 
-[![Status](https://img.shields.io/badge/Status-Publication%20Ready-brightgreen)](#) 
-[![Dice Score](https://img.shields.io/badge/Dice-0.8857-blue)](#) 
-[![GPU](https://img.shields.io/badge/GPU-GTX%201650%204GB-orange)](#)
-[![Training Time](https://img.shields.io/badge/Training-1.85h-yellow)](#)
 
 ---
 
@@ -14,9 +10,11 @@
 | Metric | Value |
 |--------|-------|
 | **Model** | 3D U-Net (22.58M parameters) |
-| **Performance** | Dice 0.8857 (exceeds clinical 0.70 by 26.5%) |
+| **Performance (Dice)** | 0.8857 best validation Dice (training-time metric) |
+| **Performance (Distance)** | HD95/H95 supported (mm; computed from surfaces with voxel spacing) |
 | **Data** | 5 SSA cases, 20 preprocessed patches |
 | **Training** | 1.85 hours on GTX 1650 (4GB VRAM) |
+| **Outputs** | Segmentation overlays + tumor parameters (volumes/areas/centroid/bbox) |
 | **Status** | ✅ Research-grade, publication-ready |
 
 ---
@@ -69,6 +67,13 @@ pip install -r requirements.txt
 python src/ssa_inference_demo.py --model models/best_ssa_model.pth
 ```
 
+### 3b. Reproduce Paper-Style Metrics (Dice + HD95/H95)
+```bash
+# Patch-based evaluation on deterministic validation split (seed=42)
+python src/ssa_patch_metrics_hd95.py --model SSA_Type/models/best_ssa_model.pth
+```
+Writes a timestamped JSON report under `results/` with Dice and HD95 for WT/TC/ET + per-class.
+
 ### 4. View Visualizations
 Open `visualizations/training/02_performance_dashboard.png` for main results figure.
 
@@ -81,6 +86,22 @@ Open `visualizations/training/02_performance_dashboard.png` for main results fig
 - **Clinical Threshold (0.70):** +26.5% above ✅
 - **Research Target (0.80):** +10.7% above ✅
 - **State-of-Art (0.85):** +4.2% above ✅
+
+### Paper Metrics (Dice + HD95/H95)
+
+HD95 (a.k.a. H95) is the **95th percentile Hausdorff distance** computed on **segmentation surfaces** (lower is better), reported in **mm** using voxel spacing. This repository computes symmetric surface distances via `scipy.ndimage.distance_transform_edt`.
+
+**Patch-based validation (deterministic split, seed=42; 4 validation patches):**
+
+| Region | Dice ↑ | HD95 (mm) ↓ |
+|--------|--------|-------------|
+| WT (Whole Tumor) | 0.9497 | 1.79 |
+| TC (Tumor Core) | 0.8348 | 11.17 |
+| ET (Enhancing Tumor) | 0.8019 | 8.96 |
+
+Source: `results/ssa_patch_metrics_20260203_224526.json`.
+
+**Note on correctness:** If a region is absent in either prediction or ground truth, HD95 is undefined and is stored as `NaN` (this is intentional to avoid misleading values).
 
 ### Per-Class Breakdown
 | Class | Dice | Use Case |
@@ -97,6 +118,19 @@ Open `visualizations/training/02_performance_dashboard.png` for main results fig
 - **Mixed Precision:** 30% memory reduction
 
 ---
+
+## 🧾 Tumor Parameters in Output Figures
+
+The inference visualization includes quantitative tumor parameters computed from the predicted 3D mask (using NIfTI voxel spacing when available):
+- Volumes (cm³): WT/TC/ET/ED (+ NCR/NET in JSON)
+- Max cross-sectional area (cm²) and slice index
+- Centroid (voxel + mm)
+- Bounding box extent (mm)
+- Connected components count (WT)
+
+Outputs:
+- `visualizations/inference/ssa_inference_demonstration.png`
+- `results/ssa_inference_results.json`
 
 ## 🗂️ Directory Guide
 
@@ -175,6 +209,12 @@ Output: [B, 4, 128, 128, 128] (4 tumor classes)
 - Training logs preserved
 - Complete environment specifications
 
+**Metrics reproduction (recommended for paper tables):**
+```bash
+python src/ssa_patch_metrics_hd95.py
+```
+This evaluates the best checkpoint on the deterministic validation split and records Dice + HD95/H95 with units.
+
 **Verification:**
 ```bash
 # 3-run validation results
@@ -231,7 +271,8 @@ See `requirements.txt` for complete dependency list.
 1. Use `visualizations/training/02_performance_dashboard.png` as Figure 1
 2. Reference `docs/RESEARCH_METHODOLOGY.md` for methods
 3. Include results from `docs/RESULTS.md`
-4. Cite recommended venues in `results/detailed_metrics.json`
+4. Include Dice + HD95/H95 table from `results/ssa_patch_metrics_*.json`
+5. Cite recommended venues in `results/detailed_metrics.json`
 
 ### For Clinical Implementation
 1. Plan multi-site validation study
