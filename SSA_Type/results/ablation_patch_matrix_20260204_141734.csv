@@ -1,0 +1,2 @@
+checkpoint,dice_ET,dice_TC,dice_WT,missing_keys,model,partial_ok,patch_dir,patch_path,sec_per_patch,status,strict_ok,unexpected_keys,val_patches
+SSA_Type\models\best_ssa_model.pth,0.01080446271285966,0.2744354255404645,0.5278706568052765,0,SSA,True,GLI,archive\preprocessed_patches,7.769679400000314,ok,True,0,1
