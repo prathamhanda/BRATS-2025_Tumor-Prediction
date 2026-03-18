@@ -1,5 +1,5 @@
 Pediatric Brain Tumor Segmentation via
-nnU-Net with 3D Printing Validation
+nnU-Net with Label-Audit and QC Exports
 Tarunpreet Kaur1 , Vivek Jain2 , Pratham Handa1 , Gourav Jain3 , and Nimrat
 Kaur4
 1
@@ -19,15 +19,9 @@ treatment planning and monitoring. These tumors exhibit unique imaging character
 comprising 438 multi-parametric MRI cases (260 training, 91 validation,
 87 test). While manual annotation is time-consuming, subject to interobserver variability, and limited by the availability of specialized radiologists, deep learning-based automated segmentation offers an optimized
 alternative. The proposed nnU-Net v2 framework employs pediatricspecific preprocessing with brain-masked z-score normalization, extensive data augmentation, automated intensity-based label mapping, and
-connected-component filtering. The method achieves test set Dice scores
-of 0.882 ± 0.103 (whole tumor), 0.542 ± 0.380 (tumor core), and 0.590 ±
-0.374 (enhancing tumor), with Hausdorff distances of 6.73 mm (WT),
-59.07 mm (TC), and 66.67 mm (ET). The framework extracts tumor
+connected-component filtering. The framework extracts tumor
 parameters including volumes (cm3 ) for all regions, maximum crosssectional areas with slice indices, centroids in voxel and millimeter coordinates, bounding box extents, and connected component counts, providing
-quantitative biomarkers for treatment planning and monitoring. To enhance clinical interpretability and surgical planning, segmented tumors
-were reconstructed into patient-specific 3D surface models and fabricated
-using 3D printing. Volumetric discrepancies between digital and printed
-models were 3–5%, and linear dimensional errors were below 2 mm, confirming geometric fidelity.
+quantitative biomarkers for treatment planning and monitoring. On the notebook’s reference evaluation over a sampled set of 30 labeled training cases, we obtain mean Dice of 0.882 ± 0.103 (whole tumor), 0.542 ± 0.380 (tumor core), and 0.590 ± 0.374 (enhancing tumor), with corresponding mean HD95 of 6.73 mm (WT), 59.07 mm (TC), and 66.67 mm (ET). The framework also produces automated visual quality-control (QC) exports for rapid review.
 Keywords: Pediatric Brain Tumors · Semantic Segmentation · nnU-Net
 · Deep Learning · Tumor Biomarkers
 
@@ -213,8 +207,8 @@ to remove anatomically implausible regions. Two operations are performed in
 sequence. The whole tumor mask MWT = 1[y > 0] is first decomposed into
 3D connected components using 26-connectivity, retaining only the largest component. This eliminates spatially disconnected false-positive islands caused by
 skull-stripping residuals or intensity artifacts. Small isolated regions of predicted
-enhancing tumor (MET = 1[y = 3]) containing fewer than τ = 20 voxels are discarded and relabeled as background. Post-processing was applied to all test set
-predictions prior to submission.
+enhancing tumor (MET = 1[y = 3]) containing fewer than τ = 20 voxels are discarded and relabeled as background. Post-processing can be applied to inference
+predictions prior to packaging a submission.
 3.6
 
 Tumor Parameter Extraction
@@ -263,27 +257,27 @@ Results
 Segmentation Performance
 
 The nnU-Net v2 3d_fullres model converged after 1,000 epochs. Table 1 presents
-Dice scores and Hausdorff distances for training and test sets, demonstrating
+Dice scores and Hausdorff distances for the training set and a labeled reference
+evaluation subset, demonstrating
 strong whole tumor segmentation with more challenging subregion performance.
 Whole tumor segmentation achieved research-grade quality (Dice > 0.80) on
-both evaluations. The performance gap between training and test sets for TC
+both evaluations. The performance gap between training and the reference subset for TC
 (0.800 → 0.542) and ET (0.805 → 0.590) reflects biological heterogeneity in
 pediatric tumors with gradual, ill-defined subregion boundaries. HD95 metrics
 confirm spatial accuracy suitable for radiation therapy planning: whole tumor
 boundaries are accurate to within 6.73 mm, while tumor core and enhancing tumor show larger boundary uncertainties (59.07 mm and 66.67 mm, respectively)
-due to smaller region sizes and lower contrast. Inference averaged 20 seconds per
-case on test volumes, demonstrating clinical deployment feasibility.
+due to smaller region sizes and lower contrast.
 
 Pediatric Brain Tumor Segmentation
 
 9
 
-Table 1. Segmentation performance on training and test sets showing Dice scores and
+Table 1. Segmentation performance on the training set and a labeled reference subset showing Dice scores and
 95th percentile Hausdorff distances (HD95) in millimeters.
 Evaluation
 Training Set
-Test Set (Dice)
-Test Set (HD95, mm)
+Reference Subset (Dice, n = 30)
+Reference Subset (HD95, mm, n = 30)
 
 4.2
 
@@ -369,7 +363,7 @@ Whole tumor segmentation (Dice 0.882, HD95 6.73 mm) falls within the 5–
 0.590) reflects the small spatial extent of these subregions, ill-defined boundaries,
 and complete absence of enhancing tissue in 26.7% of cases. The single-model approach prioritizes deployability and transparency, with approximately 16-hour
 training per fold and 20-second inference, offering a practical path to clinical
-integration. Physical validation via 3D-printed models confirmed geometric fidelity, with volumetric error 3–5% and linear error below 2 mm. Future work will
+integration. Future work will
 focus on uncertainty estimation to flag low-confidence predictions for radiologist
 review.
 
@@ -384,7 +378,7 @@ Conclusion
 The proposed study presents an automated framework for pediatric brain tumor
 segmentation that addresses dataset-specific challenges through intensity-based
 label mapping, pediatric-adapted preprocessing, and comprehensive tumor parameter extraction. The study achieves competitive performance on BraTS-PED
-2025 (WT Dice 0.882, TC Dice 0.542, ET Dice 0.590) with efficient training (approximately 16 hours per fold) and inference (20 seconds per case) suitable for
+2025 on a labeled reference evaluation subset (WT Dice 0.882, TC Dice 0.542, ET Dice 0.590) with efficient training (approximately 16 hours per fold) and inference (20 seconds per case) suitable for
 clinical deployment. The intensity-based mapping procedure provides a practical solution for handling ambiguous label assignments in multi-institutional
 datasets without requiring manual re-annotation. Extracted tumor parameters,
 including volumes, ratios, centroids, bounding boxes, and component counts,
