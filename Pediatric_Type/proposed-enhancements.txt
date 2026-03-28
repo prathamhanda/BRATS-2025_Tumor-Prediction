@@ -1,0 +1,105 @@
+Yes — here’s the exact plan I will execute, end-to-end, in a way that is both (a) implementable in this repo and (b) defensible in a Q1-style paper.
+
+**Important constraint**: I’m going to keep the “core path” lean (2 models max) until we prove we’ve plateaued. Anything like HFF-Net, cascades, CRF, self-supervised pretraining stays gated behind ablation evidence.
+
+**Phase 0 — Lock the benchmark (so results are real)**
+- **0.1 Confirm dataset + paths used by the notebook**
+  - Identify exactly where Dataset501 PEDs 2024 is being read from in pediatric_5.2 - Copy.ipynb and/or pediatric_5.2.ipynb.
+  - Output: a single “dataset root” config cell/variable used everywhere (train/infer/eval/QC).
+
+- **0.2 Standardize label ontology + region definitions**
+  - Reuse your existing “ET label audit” logic (ET=3 vs ET=4) and ensure every step uses the same audited mapping.
+  - Regions locked as:
+    - WT: `y > 0`
+    - TC: `y in {1, ET}`
+    - ET: `y == ET`
+  - Output: one shared helper used by evaluation + postprocessing.
+
+- **0.3 Standardize metrics (Dice + HD95)**
+  - Ensure HD95 is computed in **millimeters using voxel spacing** (not voxels).
+  - Define empty-region policy explicitly (ET often absent): e.g., if GT and pred are empty, Dice=1 and HD95=0; if only one is empty, Dice=0 and HD95 is undefined/large (but handled consistently).
+  - Output: a single evaluator that prints:
+    - mean±std Dice(WT/TC/ET)
+    - mean±std HD95(WT/TC/ET)
+    - plus per-case CSV for error analysis.
+
+- **0.4 Replace “30-case sample” with full CV**
+  - The baseline numbers cited in ReserchPaper_Updated.txt are from a sample; I will make evaluation run on **full labeled training set via 5-fold CV**, so comparisons are fair and reproducible.
+  - Output: fold-split file + full CV report artifact.
+
+**Phase 1 — Strong baseline (nnU-Net v2, but measured correctly)**
+- **1.1 Train nnU-Net v2 5-fold (current setup)**
+  - Keep your current preprocessing choices (brain-masked normalization, label mapping) so we don’t invalidate prior work.
+  - Output: 5 fold checkpoints + predictions + metrics.
+
+- **1.2 Tune your existing post-processing using CV**
+  - Largest WT component retention: keep, but verify it doesn’t break plausible multifocal cases.
+  - ET min-voxel removal: don’t hardcode “20”; instead grid search a small set (e.g., 0/10/20/50/100 voxels) on validation folds and pick the best Dice/HD95 tradeoff.
+  - Output: “best threshold” and justification plots.
+
+**Phase 2 — The first real performance jump (ET sampling + boundary-aware loss)**
+This is the highest-ROI block for HD95 + ET without adding a second architecture.
+
+- **2.1 ET-aware sampling**
+  - Implement tumor-centered patch sampling (or oversample ET-present cases) so ET is seen frequently.
+  - Acceptance check: in training logs, ET-positive patches per epoch should rise materially (not remain near-zero).
+
+- **2.2 Boundary-aware optimization (target HD95)**
+  - Add a boundary/surface/distance-transform loss term on top of Dice+CE.
+  - Use a **schedule**:
+    - Early epochs: Dice+CE only (stable localization)
+    - Later: ramp boundary term (boundary refinement + suppress far FP)
+  - Acceptance check:
+    - HD95 decreases on TC/ET without catastrophic drop in ET Dice/recall.
+
+- **2.3 Re-run full 5-fold CV**
+  - Output: baseline vs boundary-loss curves, and per-case “worst HD95” gallery for visual proof.
+
+**Phase 3 — Add ONE second model (Swin UNETR) and keep it clean**
+- **3.1 Train Swin UNETR on the same folds**
+  - Same preprocessing, same label audit, same evaluator.
+  - Prefer pretrained weights if available/compatible; if not, train from scratch but keep training stable and documented.
+
+- **3.2 Apply the same “ET sampling + boundary schedule” philosophy**
+  - Possibly with a lighter boundary weight if the transformer becomes unstable.
+
+- **3.3 Evaluate full CV**
+  - Output: SwinUNETR-only metrics + failure case comparisons (especially ET and HD95 outliers).
+
+**Phase 4 — Simple ensemble + uncertainty-aware filtering (finish the SOTA push)**
+- **4.1 Simple probability fusion**
+  - Start with `0.5 * nnU-Net + 0.5 * SwinUNETR` probability averaging.
+  - Then enforce anatomical consistency: **ET ⊆ TC ⊆ WT**.
+
+- **4.2 TTA (easy gains)**
+  - Apply flip-based TTA at inference and average probabilities.
+
+- **4.3 Uncertainty-aware small-blob filtering**
+  - Use either TTA variance or model disagreement as uncertainty.
+  - Remove tiny isolated ET blobs only when uncertainty is high (avoid deleting true tiny ET).
+
+- **4.4 Final full CV evaluation**
+  - Output: final metrics + ablation table:
+    1) baseline
+    2) + postprocess tuned
+    3) + ET sampling
+    4) + boundary loss schedule
+    5) + TTA
+    6) + SwinUNETR
+    7) + fusion + uncertainty filter
+
+**Phase 5 — Only if we plateau (gated extras)**
+I will only do these if the 2-model system stops improving and you explicitly want to invest more compute/complexity:
+- HFF-Net frequency branch (aimed at ET edges)
+- Two-stage cascade (WT → crop → subregions)
+- N4 bias correction / robust percentile normalization
+- CRF (only if ablation shows consistent wins)
+- CNN-JEPA/self-supervised pretraining (high risk/time)
+
+**Definition of “done / success”**
+- Reproducible full 5-fold CV report with:
+  - higher mean Dice across WT/TC/ET than your current baseline
+  - materially lower HD95 for TC/ET
+- Clear ablation evidence so the paper can defend *why* each change is included.
+
+If you confirm you want me to proceed, I’ll start at Phase 0 by locating the exact evaluator + data-root logic inside the notebook and turning it into a single, consistent “metrics + folds + label audit” block we can trust.
