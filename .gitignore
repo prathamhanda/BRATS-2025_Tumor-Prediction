@@ -9,6 +9,7 @@ models/
 *.ckpt
 *.h5
 *.pb
+*.pdf
 
 # Training artifacts
 logs/
